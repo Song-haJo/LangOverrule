@@ -1,0 +1,121 @@
+# Default configuration for text dominance analysis
+
+# General settings
+seed: 42
+device: "cuda"
+output_dir: "results"
+
+# Model configurations
+models:
+  # Image models
+  llava_7b:
+    name: "llava-hf/llava-1.5-7b-hf"
+    type: "llava"
+    modality: "image"
+    torch_dtype: "float16"
+    load_in_4bit: false
+
+  llava_13b:
+    name: "llava-hf/llava-1.5-13b-hf"
+    type: "llava"
+    modality: "image"
+    torch_dtype: "float16"
+    load_in_4bit: true
+
+  qwen_vl_7b:
+    name: "Qwen/Qwen2.5-VL-7B-Instruct"
+    type: "qwen_vl"
+    modality: "image"
+    torch_dtype: "bfloat16"
+
+  # Video models
+  video_llama_7b:
+    name: "DAMO-NLP-SG/VideoLLaMA2-7B"
+    type: "video_llama"
+    modality: "video"
+    num_frames: 8
+
+  # Audio models
+  qwen_audio:
+    name: "Qwen/Qwen2-Audio-7B-Instruct"
+    type: "qwen_audio"
+    modality: "audio"
+    sample_rate: 16000
+
+  # Time-series models
+  chatts:
+    name: "ChatTS-14B"
+    type: "chatts"
+    modality: "timeseries"
+
+  # Graph models
+  graphgpt:
+    name: "GraphGPT-7B"
+    type: "graphgpt"
+    modality: "graph"
+
+# Dataset configurations
+datasets:
+  mmmu_pro:
+    name: "MMMU-Pro"
+    modality: "image"
+    path: "MMMU/MMMU_Pro"
+    split: "test"
+
+  mmbench_video:
+    name: "MMBench-Video"
+    modality: "video"
+    path: "MMBench/Video"
+
+  iemocap:
+    name: "IEMOCAP"
+    modality: "audio"
+    path: "IEMOCAP"
+
+  timeseries_reasoning:
+    name: "TimeSeries-Reasoning"
+    modality: "timeseries"
+    path: "synthetic"
+
+  graphgpt_eval:
+    name: "GraphGPT-Eval-Instruction"
+    modality: "graph"
+    path: "GraphGPT/eval"
+
+# Analysis settings
+analysis:
+  # Token replication factors for scaling experiments
+  replication_factors: [1, 5, 10]
+
+  # Token compression rates for FasterVLM
+  compression_rates: [0.0, 0.75, 0.90, 0.95]
+
+  # Layer aggregation
+  layer_stages:
+    early: 2  # First N layers
+    late: 2   # Last N layers
+
+  # Number of samples per experiment
+  num_samples: 100
+
+# Visualization settings
+visualization:
+  figsize: [10, 6]
+  dpi: 150
+  font_size: 12
+  save_format: "png"
+  colors:
+    image: "#FF6B6B"
+    video: "#4ECDC4"
+    audio: "#45B7D1"
+    timeseries: "#96CEB4"
+    graph: "#FFEAA7"
+    early: "#3498db"
+    middle: "#2ecc71"
+    late: "#e74c3c"
+
+# Logging settings
+logging:
+  level: "INFO"
+  save_logs: true
+  log_dir: "logs"
