@@ -315,6 +315,7 @@ class LLaVAWrapper(BaseMLLMWrapper):
         # outputs.attentions is a tuple of tuples: (generation_step, layer)
         # Use only first generation step (input encoding) for consistent tensor sizes
         attentions = []
+        attn_seq_len = input_len  # Track actual attention sequence length
         if hasattr(outputs, 'attentions') and outputs.attentions is not None and len(outputs.attentions) > 0:
             first_step_attns = outputs.attentions[0]
             for attn in first_step_attns:
@@ -325,13 +326,17 @@ class LLaVAWrapper(BaseMLLMWrapper):
                     attn = attn.mean(dim=0)  # -> [seq, seq]
                 # Move to CPU immediately to avoid GPU memory accumulation
                 attentions.append(attn.cpu())
+                # Get actual attention size from first layer
+                if len(attentions) == 1:
+                    attn_seq_len = attn.shape[0]
 
         # Generated output token indices (excluding input)
         generated_ids = outputs.sequences[0, input_len:]
-        # Create on CPU to match attention weights device
+        # Use only valid indices within attention matrix bounds
+        # The first generation step attention only covers input tokens
         output_token_indices = torch.arange(
-            input_len,
-            outputs.sequences.shape[1],
+            0,
+            min(attn_seq_len, input_len),  # Use input tokens as query
             device='cpu'
         )
 
