@@ -328,16 +328,23 @@ class LLaVAWrapper(BaseMLLMWrapper):
 
         # Generated output token indices (excluding input)
         generated_ids = outputs.sequences[0, input_len:]
+        # Create on CPU to match attention weights device
         output_token_indices = torch.arange(
             input_len,
             outputs.sequences.shape[1],
-            device=outputs.sequences.device
+            device='cpu'
+        )
+
+        # Move token masks to CPU to match attention weights
+        token_masks_cpu = TokenMasks(
+            text_mask=token_masks.text_mask.cpu(),
+            nontext_mask=token_masks.nontext_mask.cpu(),
         )
 
         return {
             'outputs': outputs,
             'attentions': attentions,
-            'token_masks': token_masks,
+            'token_masks': token_masks_cpu,
             'input_ids': inputs['input_ids'],
             'generated_ids': generated_ids,
             'output_token_indices': output_token_indices,

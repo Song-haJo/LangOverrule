@@ -31,7 +31,25 @@ pip install -r requirements.txt
 - transformers 4.40+
 - CUDA (recommended for GPU acceleration)
 
-## Quick Start
+## 🚀 Quick Start with run.sh
+
+### One-Command Execution
+
+```bash
+# Run tests and paper comparison
+./run.sh test
+
+# Run LLaVA with 10 dummy samples
+./run.sh llava 10
+
+# Run Qwen2.5-VL with 100 real MMMU Pro samples
+./run.sh qwen 100 real
+
+# Run both models
+./run.sh both 50 real
+```
+
+## Quick Start (Python API)
 
 ### 1. Compute MDI and AEI Metrics
 
