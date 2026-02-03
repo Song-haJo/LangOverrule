@@ -152,11 +152,12 @@ def run_image_model_experiment(
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
 
-            # Forward pass with attention
-            # Using all tokens as query (let MDI calculator determine output tokens)
-            result = wrapper.forward_with_attention(
+            # Generate with attention to get actual output tokens
+            # Use generated tokens as query (like the paper)
+            result = wrapper.generate_with_attention(
                 text=sample['text'],
                 image=sample['image'],
+                max_new_tokens=20,  # Generate 20 tokens like in paper
             )
 
             # Debug token masks
@@ -177,14 +178,15 @@ def run_image_model_experiment(
                     print(f"  Attention to text tokens (sum): {text_attn:.6f}")
                     print(f"  Attention to non-text tokens (sum): {nontext_attn:.6f}")
 
-            # Compute metrics using auto-detected output tokens
-            # Auto-detection: uses tokens that are neither text nor image (special tokens, etc.)
+            # Compute metrics using generated output tokens
+            # Use the output_token_indices from generation (if available)
             if result['attentions']:
+                output_indices = result.get('output_token_indices', None)
                 metrics = compute_modality_metrics(
                     result['attentions'],
                     result['token_masks'].text_mask,
                     result['token_masks'].nontext_mask,
-                    output_token_indices=None,  # Auto-detect output tokens
+                    output_token_indices=output_indices,  # Use generated tokens as query
                     layerwise=True,
                 )
 

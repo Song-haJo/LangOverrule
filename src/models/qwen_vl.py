@@ -280,12 +280,20 @@ class Qwen2VLWrapper(BaseMLLMWrapper):
                     attn = attn.mean(dim=1).squeeze(0)  # -> [seq, seq]
                 elif attn.dim() == 3:
                     attn = attn.mean(dim=0)  # -> [seq, seq]
-                attentions.append(attn)
+                # Move to CPU immediately to avoid GPU memory accumulation
+                attentions.append(attn.cpu())
+
+        # Move token masks to CPU to match attention weights
+        from ..attention import TokenMasks
+        token_masks_cpu = TokenMasks(
+            text_mask=token_masks.text_mask.cpu(),
+            nontext_mask=token_masks.nontext_mask.cpu(),
+        )
 
         return {
             'outputs': outputs,
             'attentions': attentions,
-            'token_masks': token_masks,
+            'token_masks': token_masks_cpu,
             'input_ids': inputs['input_ids'],
         }
 
@@ -342,7 +350,8 @@ class Qwen2VLWrapper(BaseMLLMWrapper):
                     attn = attn.mean(dim=1).squeeze(0)  # -> [seq, seq]
                 elif attn.dim() == 3:
                     attn = attn.mean(dim=0)  # -> [seq, seq]
-                attentions.append(attn)
+                # Move to CPU immediately to avoid GPU memory accumulation
+                attentions.append(attn.cpu())
 
         # Generated output token indices (excluding input)
         generated_ids = outputs.sequences[0, input_len:]

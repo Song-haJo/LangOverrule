@@ -76,6 +76,7 @@ class LLaVAWrapper(BaseMLLMWrapper):
         model_kwargs = {
             "torch_dtype": self.config.get_torch_dtype(),
             "device_map": "auto" if self.config.device == "cuda" else None,
+            "attn_implementation": "eager",  # Required for attention extraction
         }
         if quantization_config:
             model_kwargs["quantization_config"] = quantization_config
@@ -241,18 +242,105 @@ class LLaVAWrapper(BaseMLLMWrapper):
         outputs = self.model(**inputs, output_attentions=True)
 
         # Get token masks
-        token_masks = self.get_token_masks(inputs['input_ids'], **inputs)
+        token_masks = self.get_token_masks(**inputs)
 
-        # Extract attention
+        # Extract attention and process
         attentions = []
         if hasattr(outputs, 'attentions') and outputs.attentions is not None:
-            attentions = list(outputs.attentions)
+            for attn in outputs.attentions:
+                # attn shape: [batch, heads, seq, seq]
+                # Average across heads and remove batch dimension
+                if attn.dim() == 4:
+                    attn = attn.mean(dim=1).squeeze(0)  # -> [seq, seq]
+                elif attn.dim() == 3:
+                    attn = attn.mean(dim=0)  # -> [seq, seq]
+                # Move to CPU immediately to avoid GPU memory accumulation
+                attentions.append(attn.cpu())
+
+        # Move token masks to CPU to match attention weights
+        token_masks_cpu = TokenMasks(
+            text_mask=token_masks.text_mask.cpu(),
+            nontext_mask=token_masks.nontext_mask.cpu(),
+        )
+
+        return {
+            'outputs': outputs,
+            'attentions': attentions,
+            'token_masks': token_masks_cpu,
+            'input_ids': inputs['input_ids'],
+        }
+
+    def generate_with_attention(
+        self,
+        text: str,
+        image: Optional[Union[Image.Image, str]] = None,
+        max_new_tokens: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Generate text and capture attention during generation (like the paper).
+
+        Args:
+            text: Input text
+            image: Optional image
+            max_new_tokens: Maximum number of tokens to generate
+
+        Returns:
+            Dictionary with outputs, attentions, and token masks
+        """
+        if not self._loaded:
+            self.load_model()
+            self._loaded = True
+
+        inputs = self.preprocess(text, image)
+
+        # Get input length for masking
+        input_len = inputs['input_ids'].shape[1]
+
+        # Enable attention output
+        self.model.config.output_attentions = True
+
+        # Generate with attention
+        outputs = self.model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            output_attentions=True,
+            return_dict_in_generate=True,
+            do_sample=False,  # Greedy decoding like paper
+        )
+
+        # Get token masks from input
+        token_masks = self.get_token_masks(**inputs)
+
+        # Extract and process attentions
+        # outputs.attentions is a tuple of tuples: (generation_step, layer)
+        # Use only first generation step (input encoding) for consistent tensor sizes
+        attentions = []
+        if hasattr(outputs, 'attentions') and outputs.attentions is not None and len(outputs.attentions) > 0:
+            first_step_attns = outputs.attentions[0]
+            for attn in first_step_attns:
+                # Average across heads and remove batch
+                if attn.dim() == 4:
+                    attn = attn.mean(dim=1).squeeze(0)  # -> [seq, seq]
+                elif attn.dim() == 3:
+                    attn = attn.mean(dim=0)  # -> [seq, seq]
+                # Move to CPU immediately to avoid GPU memory accumulation
+                attentions.append(attn.cpu())
+
+        # Generated output token indices (excluding input)
+        generated_ids = outputs.sequences[0, input_len:]
+        output_token_indices = torch.arange(
+            input_len,
+            outputs.sequences.shape[1],
+            device=outputs.sequences.device
+        )
 
         return {
             'outputs': outputs,
             'attentions': attentions,
             'token_masks': token_masks,
             'input_ids': inputs['input_ids'],
+            'generated_ids': generated_ids,
+            'output_token_indices': output_token_indices,
         }
 
 
