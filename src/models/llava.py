@@ -311,34 +311,52 @@ class LLaVAWrapper(BaseMLLMWrapper):
         # Get token masks from input
         token_masks = self.get_token_masks(**inputs)
 
-        # Extract and process attentions
+        # Extract and process attentions - Paper method
         # outputs.attentions is a tuple of tuples: (generation_step, layer)
-        # Use only first generation step (input encoding) for consistent tensor sizes
-        attentions = []
-        attn_seq_len = input_len  # Track actual attention sequence length
-        if hasattr(outputs, 'attentions') and outputs.attentions is not None and len(outputs.attentions) > 0:
-            first_step_attns = outputs.attentions[0]
-            for attn in first_step_attns:
-                # Average across heads and remove batch
-                if attn.dim() == 4:
-                    attn = attn.mean(dim=1).squeeze(0)  # -> [seq, seq]
-                elif attn.dim() == 3:
-                    attn = attn.mean(dim=0)  # -> [seq, seq]
-                # Move to CPU immediately to avoid GPU memory accumulation
-                attentions.append(attn.cpu())
-                # Get actual attention size from first layer
-                if len(attentions) == 1:
-                    attn_seq_len = attn.shape[0]
+        # Each step: attention from newly generated token to all previous tokens
+        # We collect attention from each generated token to INPUT tokens only
+        num_layers = 0
+        num_gen_steps = 0
 
-        # Generated output token indices (excluding input)
+        if hasattr(outputs, 'attentions') and outputs.attentions is not None:
+            num_gen_steps = len(outputs.attentions)
+            if num_gen_steps > 0:
+                num_layers = len(outputs.attentions[0])
+
+        # Build attention matrix [num_layers][num_generated_tokens, input_len]
+        # For each layer, collect attention from each generated token to input
+        attentions = []
+
+        if num_gen_steps > 0 and num_layers > 0:
+            for layer_idx in range(num_layers):
+                layer_attns = []
+                for step_idx in range(num_gen_steps):
+                    step_attns = outputs.attentions[step_idx]
+                    attn = step_attns[layer_idx]  # [batch, heads, seq, seq]
+
+                    # Average across heads
+                    if attn.dim() == 4:
+                        attn = attn.mean(dim=1).squeeze(0)  # -> [seq, seq]
+                    elif attn.dim() == 3:
+                        attn = attn.mean(dim=0)  # -> [seq, seq]
+
+                    # The newly generated token is at position (input_len + step_idx)
+                    # But attention matrix might be smaller, so use last row
+                    gen_token_idx = attn.shape[0] - 1
+
+                    # Extract attention from generated token to input tokens only
+                    # attn[gen_token_idx, :input_len] = attention to input tokens
+                    gen_to_input = attn[gen_token_idx, :input_len]  # [input_len]
+                    layer_attns.append(gen_to_input.cpu())
+
+                # Stack all generated tokens' attention: [num_gen_steps, input_len]
+                layer_attn_matrix = torch.stack(layer_attns, dim=0)
+                attentions.append(layer_attn_matrix)
+
+        # Generated output token indices - these are the query tokens (rows in attention)
         generated_ids = outputs.sequences[0, input_len:]
-        # Use only valid indices within attention matrix bounds
-        # The first generation step attention only covers input tokens
-        output_token_indices = torch.arange(
-            0,
-            min(attn_seq_len, input_len),  # Use input tokens as query
-            device='cpu'
-        )
+        # Output token indices are 0 to num_gen_steps (rows of our attention matrix)
+        output_token_indices = torch.arange(0, num_gen_steps, device='cpu')
 
         # Move token masks to CPU to match attention weights
         token_masks_cpu = TokenMasks(
